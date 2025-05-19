@@ -1,79 +1,77 @@
-# Copyright CNOE Contributors (https://cnoe.io)
-# SPDX-License-Identifier: Apache-2.0
-
-import itertools
-import logging
+import os
+import sys
 
 import click
-from langchain_core.runnables import RunnableConfig
+import httpx
 
-from .langgraph import AGENT_GRAPH
-from .state import AgentState, ConfigSchema, InputState, Message, MsgType
+from agent_argocd.a2a_server.agent import ArgoCDAgent # type: ignore[import-untyped]
+from agent_argocd.a2a_server.agent_executor import ArgoCDAgentExecutor # type: ignore[import-untyped]
+from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
-
-
-class ParamMessage(click.ParamType):
-    name = "message"
-
-    def __init__(self, **kwargs):
-        self.msg_type = kwargs.pop("msg_type", MsgType.human)
-        super().__init__(**kwargs)
-
-    def convert(self, value, param, ctx):
-        try:
-            return Message(type=self.msg_type, content=value)
-        except ValueError:
-            self.fail(f"{value!r} is not valid message content", param, ctx)
-
-
-@click.command(short_help="Run ArgoCD Agent")
-@click.option(
-    "--log-level",
-    type=click.Choice(["critical", "error", "warning", "info", "debug"], case_sensitive=False),
-    default="info",
-    help="Set logging level.",
+from a2a.server.apps import A2AStarletteApplication
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryPushNotifier, InMemoryTaskStore
+from a2a.types import (
+    AgentAuthentication,
+    AgentCapabilities,
+    AgentCard,
+    AgentSkill,
 )
-@click.option(
-    "--human",
-    type=ParamMessage(msg_type=MsgType.human),
-    multiple=True,
-    help="Add human message(s).",
-)
-@click.option(
-    "--assistant",
-    type=ParamMessage(msg_type=MsgType.assistant),
-    multiple=True,
-    help="Add assistant message(s).",
-)
-def run_argocd_agent(log_level, human, assistant):
-    logging.basicConfig(level=log_level.upper())
-    config = ConfigSchema()
 
-    # Combine messages in natural order
-    if human and assistant:
-        messages = list(itertools.chain(*zip(human, assistant)))
-        messages += human[len(assistant):] if len(human) > len(assistant) else assistant[len(human):]
-    elif human:
-        messages = list(human)
-    elif assistant:
-        messages = list(assistant)
-    else:
-        messages = []
 
-    state_input = InputState(messages=messages)
-    logger.debug(f"input messages: {state_input.model_dump_json()}")
+load_dotenv()
 
-    # Prepare graph input
-    agent_input = AgentState(argocd_input=state_input).model_dump(mode="json")
 
-    result = AGENT_GRAPH.invoke(
-        AGENT_GRAPH.builder.schema.model_validate(agent_input),
-        config=RunnableConfig(configurable=config),
+@click.command()
+@click.option('--host', 'host', default='localhost')
+@click.option('--port', 'port', default=10000)
+def main(host: str, port: int):
+    if not os.getenv('GOOGLE_API_KEY'):
+        print('GOOGLE_API_KEY environment variable not set.')
+        sys.exit(1)
+
+    client = httpx.AsyncClient()
+    request_handler = DefaultRequestHandler(
+        agent_executor=ArgoCDAgentExecutor(),
+        task_store=InMemoryTaskStore(),
+        push_notifier=InMemoryPushNotifier(client),
     )
 
-    logger.debug(f"output messages: {result}")
-    print(result["argocd_output"].model_dump_json(indent=2))
+    server = A2AStarletteApplication(
+        agent_card=get_agent_card(host, port), http_handler=request_handler
+    )
+    import uvicorn
 
-if __name__ == "__main__":
-    run_argocd_agent()  # type: ignore
+    uvicorn.run(server.build(), host=host, port=port)
+
+
+def get_agent_card(host: str, port: int):
+  """Returns the Agent Card for the ArgoCD CRUD Agent."""
+  capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+  skill = AgentSkill(
+    id='argocd',
+    name='ArgoCD Operations',
+    description='Performs Create, Read, Update, and Delete operations on ArgoCD applications.',
+    tags=['argocd', 'kubernetes', 'continuous_deployment', 'devops'],
+    examples=[
+      'Create a new ArgoCD application named "my-app".',
+      'Get the status of the "frontend" ArgoCD application.',
+      'Update the image version for "backend" app.',
+      'Delete the "test-app" from ArgoCD.'
+    ],
+  )
+  return AgentCard(
+    name='ArgoCD CRUD Agent',
+    description='Agent for managing ArgoCD applications with CRUD operations.',
+    url=f'http://{host}:{port}/',
+    version='1.0.0',
+    defaultInputModes=ArgoCDAgent.SUPPORTED_CONTENT_TYPES,
+    defaultOutputModes=ArgoCDAgent.SUPPORTED_CONTENT_TYPES,
+    capabilities=capabilities,
+    skills=[skill],
+    authentication=AgentAuthentication(schemes=['public']),
+  )
+
+
+if __name__ == '__main__':
+    main()
