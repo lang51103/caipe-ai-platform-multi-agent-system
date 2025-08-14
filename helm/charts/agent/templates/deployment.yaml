@@ -94,7 +94,7 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
-          {{- if or .Values.env .Values.isMultiAgent .Values.global.slim.enabled }}
+          {{- if or .Values.env .Values.isMultiAgent .Values.global.slim.enabled (eq .Values.mcp.mode "http") }}
           env:
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
@@ -107,6 +107,16 @@ spec:
               value: {{ .Values.global.slim.transport | quote }}
             - name: SLIM_ENDPOINT
               value: {{ .Values.global.slim.endpoint | quote }}
+            {{- end }}
+            {{- if eq .Values.mcp.mode "http" }}
+            {{- if and (not .Values.isMultiAgent) (not .Values.isBackstagePlugin) }}
+            - name: MCP_MODE
+              value: http
+            - name: MCP_PORT
+              value: {{ .Values.mcp.service.port | quote }}
+            - name: MCP_HOST
+              value: {{ include "agent.fullname" . }}-mcp
+            {{- end }}
             {{- end }}
             {{- include "agent.multiAgentEnvVars" . | nindent 12 }}
           {{- end }}
