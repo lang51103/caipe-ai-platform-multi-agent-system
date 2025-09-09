@@ -1,5 +1,5 @@
-from .url.docsaurus_scraper import scrape_docsaurus
-from .url.mkdocs_scraper import scrape_mkdocs
+from server.loader.url.docsaurus_scraper import scrape_docsaurus
+from server.loader.url.mkdocs_scraper import scrape_mkdocs
 import aiohttp
 from bs4 import BeautifulSoup
 import gzip
@@ -28,6 +28,15 @@ class Loader:
 
         # Batch size for URL processing (configurable via environment variable)
         self.batch_size = int(os.getenv("URL_BATCH_SIZE", "5"))
+
+        # Use custom parser if environment variable is set
+        self.use_custom_parser = os.getenv("USE_CUSTOM_PARSER", "false").lower() == "true"
+
+        # Hybrid approach: use custom parser for known generators, WebBaseLoader for others
+        self.use_hybrid_approach = os.getenv("USE_HYBRID_APPROACH", "true").lower() == "true"
+
+        # Chrome user agent for better web scraping compatibility
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
         # Initialize text splitter for chunking large documents
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -95,6 +104,40 @@ class Loader:
         else:
             self.logger.warning(f"Cannot update job {job_id}: job_id={job_id}, redis_client exists={bool(self.redis_client)}")
 
+    async def detect_generator(self, url: str) -> str:
+        """Detect the generator/technology used by a website."""
+        try:
+            # Use the class session if available, otherwise create a temporary one
+            if not self.session:
+                self.session = aiohttp.ClientSession(headers={"User-Agent": self.user_agent})
+            
+            async with self.session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    content = await response.text()
+
+                    # Check only for supported generators
+                    if 'docusaurus' in content.lower():
+                        return "docusaurus"
+                    elif 'mkdocs' in content.lower():
+                        return "mkdocs"
+                    else:
+                        return "generic"
+                else:
+                    self.logger.warning(f"Failed to detect generator for {url}: HTTP {response.status}")
+                    return "generic"
+        except Exception as e:
+            self.logger.debug(f"Error detecting generator for {url}: {e}")
+            return "generic"
+
+    def should_use_custom_parser(self, generator: str) -> bool:
+        """Determine if custom parser should be used based on generator."""
+        if not self.use_hybrid_approach:
+            return self.use_custom_parser
+
+        # Use custom parser only for Docusaurus and MkDocs
+        custom_parser_generators = {"docusaurus", "mkdocs"}
+        return generator in custom_parser_generators
+
     async def get_sitemaps(self, url: str) -> List[str]:
         """Return a list of sitemap URLs for the given site.
 
@@ -104,7 +147,7 @@ class Loader:
         3) <scheme>://<netloc>/sitemap.xml
         """
         if not self.session:
-            self.session = aiohttp.ClientSession()
+            self.session = aiohttp.ClientSession(headers={"User-Agent": self.user_agent})
 
         sitemaps: List[str] = []
         parsed = urlparse(url)
@@ -372,18 +415,42 @@ class Loader:
                     progress={"message": "No sitemaps found, processing single URL...", "processed": 0, "total": 1}
                 )
 
-                # Use synchronous loading to avoid event loop conflicts
-                loader = WebBaseLoader(
-                    requests_per_second=1
-                )
-                docs = await loader.ascrape_all([url])
-                for doc in docs:
-                    self.logger.info(f"Processing single URL: {url}")
-                    # WebBaseLoader already parsed the HTML and extracted content
-                    # Just update the document ID and source metadata
-                    doc.id = uuid.uuid4().hex
-                    doc.metadata["source"] = url
-                    await self.process_document(doc, job_id)
+                # Detect generator and decide on parsing approach
+                generator = await self.detect_generator(url)
+                use_custom = self.should_use_custom_parser(generator)
+
+                self.logger.info(f"Detected generator: {generator}, using {'custom parser' if use_custom else 'WebBaseLoader'} for single URL: {url}")
+
+                if use_custom:
+                    # Use custom parser approach
+                    if not self.session:
+                        self.session = aiohttp.ClientSession(headers={"User-Agent": self.user_agent})
+
+                    async with self.session.get(url, allow_redirects=True) as resp:
+                        if resp.status == 200:
+                            html_content = await resp.text()
+                            soup = BeautifulSoup(html_content, 'html.parser')
+                            content, metadata = await self.custom_parser(soup, url)
+                            doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
+                            await self.process_document(doc, job_id)
+                        else:
+                            self.logger.warning(f"Failed to fetch {url}: HTTP {resp.status}")
+                else:
+                    # Use WebBaseLoader approach
+                    loader = WebBaseLoader(
+                        requests_per_second=1,
+                        header_template={"User-Agent": self.user_agent}
+                    )
+                    docs = await loader.ascrape_all([url])
+                    for doc in docs:
+                        self.logger.info(f"Processing single URL: {url}")
+                        # WebBaseLoader already parsed the HTML and extracted content
+                        # Just update the document ID and source metadata
+                        doc.id = uuid.uuid4().hex
+                        if doc.metadata is None:
+                            doc.metadata = {}
+                        doc.metadata["source"] = url
+                        await self.process_document(doc, job_id)
 
                 await self.update_job_progress(job_id,
                     status="completed",
@@ -420,21 +487,52 @@ class Loader:
                     )
 
                     try:
-                        # Load batch of URLs to balance memory usage and efficiency
-                        # Use asyncio.to_thread to run the synchronous load() method in a thread pool
-                        import asyncio
-                        loader = WebBaseLoader(batch_urls, requests_per_second=1)
-                        docs = await asyncio.to_thread(loader.load)
+                        # Detect generator for the first URL in batch to decide approach
+                        generator = await self.detect_generator(batch_urls[0])
+                        use_custom = self.should_use_custom_parser(generator)
 
-                        for doc in docs:
-                            # Extract source URL from document metadata if available, otherwise use the first URL in batch
-                            source_url = doc.metadata.get("source", batch_urls[0])
-                            # WebBaseLoader already parsed the HTML and extracted content
-                            # Just update the document ID and source metadata
-                            doc.id = uuid.uuid4().hex
-                            doc.metadata["source"] = source_url
-                            await self.process_document(doc, job_id)
-                            processed_count += 1
+                        self.logger.info(f"Detected generator: {generator}, using {'custom parser' if use_custom else 'WebBaseLoader'} for batch processing")
+
+                        if use_custom:
+                            # Use custom parser approach for batch processing
+                            if not self.session:
+                                self.session = aiohttp.ClientSession(headers={"User-Agent": self.user_agent})
+
+                            for page_url in batch_urls:
+                                try:
+                                    async with self.session.get(page_url, allow_redirects=True) as resp:
+                                        if resp.status == 200:
+                                            html_content = await resp.text()
+                                            soup = BeautifulSoup(html_content, 'html.parser')
+                                            content, metadata = await self.custom_parser(soup, page_url)
+                                            doc = Document(id=uuid.uuid4().hex, page_content=content, metadata=metadata)
+                                            await self.process_document(doc, job_id)
+                                            processed_count += 1
+                                        else:
+                                            self.logger.warning(f"Failed to fetch {page_url}: HTTP {resp.status}")
+                                except Exception as e:
+                                    self.logger.warning(f"Failed to process {page_url}: {e}")
+                                    continue
+                        else:
+                            # Use WebBaseLoader approach for batch processing
+                            self.logger.info(f"Using WebBaseLoader for batch processing")
+                            # Load batch of URLs to balance memory usage and efficiency
+                            # Use asyncio.to_thread to run the synchronous load() method in a thread pool
+                            import asyncio
+                            loader = WebBaseLoader(batch_urls, requests_per_second=1, header_template={"User-Agent": self.user_agent})
+                            docs = await asyncio.to_thread(loader.load)
+
+                            for doc in docs:
+                                # Extract source URL from document metadata if available, otherwise use the first URL in batch
+                                if doc.metadata is None:
+                                    doc.metadata = {}
+                                source_url = doc.metadata.get("source", batch_urls[0])
+                                # WebBaseLoader already parsed the HTML and extracted content
+                                # Just update the document ID and source metadata
+                                doc.id = uuid.uuid4().hex
+                                doc.metadata["source"] = source_url
+                                await self.process_document(doc, job_id)
+                                processed_count += 1
 
                         # Force garbage collection after each batch to free memory
                         import gc
@@ -473,6 +571,12 @@ class Loader:
 
     async def close(self):
         """Close the aiohttp session"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+    
+    async def cleanup(self):
+        """Clean up resources."""
         if self.session:
             await self.session.close()
             self.session = None
