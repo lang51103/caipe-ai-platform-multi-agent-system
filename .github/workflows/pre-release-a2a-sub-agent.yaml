@@ -52,7 +52,7 @@ jobs:
 
       - name: Generate path filters
         id: generate-filters
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const agents = JSON.parse(process.env.ALL_AGENTS);
@@ -77,7 +77,7 @@ jobs:
 
       - name: Set matrix based on changes
         id: set-matrix
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           BUILD_ALL: >-
             ${{
@@ -202,7 +202,7 @@ jobs:
 
       - name: 💬 Comment on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           AGENT: ${{ matrix.agent }}
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -264,7 +264,7 @@ jobs:
       PACKAGE_NAME: prebuild/agent-${{ matrix.agent }}
     steps:
       - name: Delete prebuild images for branch
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:

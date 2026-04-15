@@ -52,7 +52,7 @@ jobs:
 
       - name: Determine next RC number
         id: rc
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           VERSION: ${{ steps.version.outputs.version }}
         with:

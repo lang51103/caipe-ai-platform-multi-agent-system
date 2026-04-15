@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: compose-logs-latest
           path: compose-live.log
@@ -211,7 +211,7 @@ jobs:
           echo "Stable tag created/updated to point to commit: $(git rev-parse HEAD)"
 
       - name: Trigger stable integration tests
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: workflowRuns } = await github.rest.actions.listWorkflowRuns({
