@@ -43,7 +43,7 @@ jobs:
       tag_version: ${{ steps.version.outputs.tag_version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -133,7 +133,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -249,7 +249,7 @@ jobs:
       # Fallback build if retag not possible
       - name: Checkout repository
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'

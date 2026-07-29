@@ -31,7 +31,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Create .env from GitHub Secrets
         run: |
@@ -98,7 +98,7 @@ jobs:
           docker compose version || true
 
       - name: Setup Python for A2A client test
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -157,7 +157,7 @@ jobs:
 
       - name: Upload logs artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: compose-logs
           path: compose-live.log
