@@ -35,7 +35,7 @@ jobs:
           egress-policy: audit
 
       - name: 📥 Checkout repository (with synced Chart.yaml files)
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -90,7 +90,7 @@ jobs:
           echo "✅ Version validation passed: $CURRENT_VERSION -> $NEW_VERSION"
 
       - name: 🐍 Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
