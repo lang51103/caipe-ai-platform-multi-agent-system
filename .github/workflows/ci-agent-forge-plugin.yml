@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -120,13 +120,13 @@ jobs:
 
     steps:
       - name: Checkout main repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: main-repo
           fetch-depth: 1
 
       - name: Checkout community-plugins repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: cnoe-io/community-plugins
           ref: agent-forge-upstream-docker
@@ -252,14 +252,14 @@ jobs:
       # Fallback build if retag not possible
       - name: Checkout main repository
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: main-repo
           fetch-depth: 1
 
       - name: Checkout community-plugins repository
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: cnoe-io/community-plugins
           ref: agent-forge-upstream-docker
