@@ -20,6 +20,7 @@ if [ "$1" = "stop" ]; then
     exit 0
 fi
 
+
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
