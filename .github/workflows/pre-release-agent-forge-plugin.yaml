@@ -20,7 +20,7 @@ jobs:
       should_build: ${{ steps.set-build.outputs.should_build }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -36,7 +36,7 @@ jobs:
 
       - name: Set build flag
         id: set-build
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           CHANGED_AGENT_FORGE: ${{ steps.filter.outputs.agent-forge }}
         with:
@@ -67,13 +67,13 @@ jobs:
           egress-policy: audit
 
       - name: Checkout current repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: main-repo
           fetch-depth: 0
           
       - name: Checkout community-plugins repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: cnoe-io/community-plugins
           ref: agent-forge-upstream-docker
@@ -135,7 +135,7 @@ jobs:
 
       - name: 💬 Comment on PR
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
@@ -173,7 +173,7 @@ jobs:
       PACKAGE_NAME: prebuild/backstage-plugin-agent-forge
     steps:
       - name: Delete prebuild images for branch
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         with:
